@@ -1,0 +1,1078 @@
+---
+title: "FINAL: Predicting Oil Pirces"
+author: "Lydia Sanz Lozano"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+header-includes:
+  - \usepackage{titling}
+  - \pretitle{\begin{center}\LARGE\bfseries}
+  - \posttitle{\par\end{center}\vskip 1em}
+  - \preauthor{\begin{center}\large}
+  - \postauthor{\par\end{center}}
+  - \predate{\begin{center}\large}
+  - \postdate{\par\end{center}}
+  - \AtBeginDocument{\maketitle\clearpage}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(plotly)
+library(caret)
+library(aTSA)
+library(ggthemes)
+library(vars)
+library(corrplot)
+library(kableExtra)
+library(glmnet)
+library(randomForest)
+library(tseries)
+library(extrafont)
+loadfonts()
+library(knitr)
+library(reshape2)
+library(FNN)
+library(scales)
+```
+
+## Inrtroduction
+
+Oil is a key component of the energy industry, and accounts for the production of daily goods and services used by consumers, all the way from manufacturing to transportation. In the recent years, we have seen significant fluctuations in the price of crude oil, motivated as a result of economic changes, social pressures. And given the significant weight that oil has in a country's supply chain, such volatility in prices also poses volatility in gains for firms and choices for consumers. This supports the value of accurately predicting oil prices, to be better prepared for volatile shocks. Moreover, under the new trump Administration, their proposed "One Big Beautiful Bill", the US has started exploring additional sources of oil, and so paying closer attention to the US production of oil is a concern of modern importance as it is likely to have significant global implications in shaping the future of the energy market. 
+
+We aim to predict crude oil prices (WTI) for the US (for the next month) using factors affecting both the demand and supply of crude oil, as well as macroeconomic conditions for the United States (a regression approach). These insights are helpful to both US producer, consumers as well as international actors who depend on WTI oil from the US for imported oil. Our model aims to predict the next month's price of WTI crude oil given the observation of these explanatory factors in the previous month. We aim to expand upon previous models of oil predictions by introducing a range of advanced data science methods to the already explored econometric models in past literature by include multiple aggressors and lags of oil prices, to better encompass the complex and volatile trajectory of oil prices across time.
+
+For example, Göncü et al. (2024), focuses on the inclusion lagged oil spot price values, measures of price volatility, stock market indices, other crude oil types and a range of moving averages, when employing Random Forest techniques to identify the most significant in predicting future prices. Additionally, Manescu and Robays through their Working Paper for the European Central Bank employ a Vector Auto Regressive Model (VAR) which take into account both 4 month lagged variables of prices as well as endogenous regressors such as percentage change in oil production, oil acquisition costs, proxies for oil inventories and proxies for economic activity. Unlike previous literature, including that of Baumeister and Kilian 2012, that assumes the mean reversion of preoperty of oil, this paper focuses on the non-stationarity of oil. They also use a rolling window approach as opposed to a recursive one, as they find that this would not do well with the instability present in oil prices. This is thus the main motivation for us following a non-recursive approach, but rather building a model that uses realized observations to predict one month ahead. However, we understand that this could be a further area of research in this field.  
+
+https://www.sciencedirect.com/science/article/pii/S1544612324009048#bb14
+https://www.ecb.europa.eu/pub/pdf/scpwps/ecbwp1735.pdf
+https://www.jstor.org/stable/23243728 
+
+Therefore, we aim to build upon the pre-existing literature by focusing on similar techniques (such as that of Random Forest) but doing so in a way that focuses on the equilibrium price and encompasses more macroeconomic variables pertinent to the US economy that help us predict next month's price of WTI crude oil. We are confident in the insights of this novel approach, given the strong linkage of oil with economic activity: something which is only going to strengthen in nature with rising uncertainty and interconnectedness of the global economy and the strategic position the US chooses to hold. 
+
+
+
+## Data Description
+
+```{r DATA MERGING, echo = FALSE, include = FALSE}
+##Load Data Sets and the Variables
+
+## GLOBAL BRENT CRUDE PRICES
+global_brent_crude_prices = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/global_brent_price.csv")
+global_brent_crude_prices = global_brent_crude_prices%>%
+  rename(global_brent_crude_prices = POILBREUSDM)
+
+## GLOBAL DUBAI CRUDE PRICES
+global_dubai_crude_prices = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/global_dubai_price.csv")
+global_dubai_crude_prices = global_dubai_crude_prices%>%
+  rename(global_dubai_crude_prices = POILDUBUSDM)
+
+## GLOBAL WTI CRUDE PRICES (Y VARIABLE OF INTEREST!)
+global_WTI_crude_prices=read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/global_WTI_price.csv")
+global_WTI_crude_prices = global_WTI_crude_prices%>%
+  rename(global_WTI_crude_prices = POILWTIUSDM)
+
+global_WTI_crude_prices = global_WTI_crude_prices%>%
+  mutate(log_global_WTI_crude_prices = log(global_WTI_crude_prices))
+
+##INDUSTRIAL PRODUCTION
+industrial_production = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/industrial_production.csv")
+industrial_production = industrial_production%>%
+  rename(industrial_production = INDPRO)
+
+##PRODUCER PRICE INDEX OIL AND GAS INDUSTRY
+oil_gas_industry_price_index = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/producer_price_index_oilgas_industry.csv")
+oil_gas_industry_price_index = oil_gas_industry_price_index%>%
+  rename(oil_gas_industry_price_index = PCU333132333132)
+
+##US UNEMPLOYMENT
+us_unemployment = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/unemployment.csv")
+us_unemployment = us_unemployment%>%
+  rename(us_unemployment = UNRATE)
+
+##US ACQUISITION COST BY REFINERIES
+us_acquisition_cost = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_acquisition_cost.csv", skip = 4)
+
+##US CPI
+us_cpi = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_allCPI.csv")
+us_cpi = us_cpi%>%
+  rename(us_cpi = CPALTT01USM657N)
+
+##US CRUDE OIL CONTRACTS (does NOT work!!!!!!)
+us_crude_contract1 = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_crude_oil_contract1.csv", skip =4)
+us_crude_contract1 = us_crude_contract1%>%
+  rename(us_crude_contract1=`Cushing OK Crude Oil Future Contract 1 Dollars per Barrel`)
+
+us_crude_contract1$observation_date <- as.Date(paste0("01 ", us_crude_contract1$Month), format = "%d %b %Y")
+
+us_crude_contract2 = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_crude_oil_contract2.csv", skip =4)
+us_crude_contract2 = us_crude_contract2%>%
+  rename(us_crude_contract2=`Cushing OK Crude Oil Future Contract 2 Dollars per Barrel`)
+
+us_crude_contract2$observation_date <- as.Date(paste0("01 ", us_crude_contract2$Month), format = "%d %b %Y")
+
+us_crude_contract3 = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_crude_oil_contract3.csv", skip =4)
+us_crude_contract3 = us_crude_contract3%>%
+  rename(us_crude_contract3=`Cushing OK Crude Oil Future Contract 3 Dollars per Barrel`)
+
+us_crude_contract3$observation_date <- as.Date(paste0("01 ", us_crude_contract3$Month), format = "%d %b %Y")
+
+us_crude_contract4 = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_crude_oil_contract4.csv", skip =4)
+us_crude_contract4 = us_crude_contract4%>%
+  rename(us_crude_contract4=`Cushing OK Crude Oil Future Contract 4 Dollars per Barrel`)
+
+us_crude_contract4$observation_date <- as.Date(paste0("01 ", us_crude_contract4$Month), format = "%d %b %Y")
+
+##US CRUDE OIL STOCKS REFINERIES
+us_crude_oil_stocks_refineries = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_crude_oil_stocks_refineries.csv", skip = 4)
+us_crude_oil_stocks_refineries = us_crude_oil_stocks_refineries%>%
+  rename(us_crude_oil_stocks_refineries = `U.S. Crude Oil Stocks at Refineries Thousand Barrels`)
+
+us_crude_oil_stocks_refineries$observation_date <- as.Date(paste0("01 ", us_crude_oil_stocks_refineries$Month), format = "%d %b %Y")
+
+##US CRUDE OIL OPERATING RIGS
+us_crude_oil_operating_rigs = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_crude_rigs_operating.csv", skip = 4)
+us_crude_oil_operating_rigs = us_crude_oil_operating_rigs%>%
+  rename(us_crude_oil_operating_rigs = `U.S. Crude Oil Rotary Rigs in Operation Number of Elements`)
+
+us_crude_oil_operating_rigs$observation_date <- as.Date(paste0("01 ", us_crude_oil_operating_rigs$Month), format = "%d %b %Y")
+
+##US GASOLINE PRICES
+us_gasoline_prices = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_gasoline_prices.csv", skip = 4)
+us_gasoline_prices = us_gasoline_prices%>%
+  rename(us_gasoline_prices=`U.S. All Grades All Formulations Retail Gasoline Prices Dollars per Gallon`)
+
+us_gasoline_prices$observation_date <- as.Date(paste0("01 ", us_gasoline_prices$Month), format = "%d %b %Y")
+
+##US GDP
+us_gdp = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_gdp.csv")
+
+##US INTEREST RATE
+us_interest_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_interest_rate.csv")
+us_interest_rate=us_interest_rate%>%
+  rename(us_interest_rate=INTDSRUSM193N)
+
+##US EXCHANGE RATES (WITH MAJOR IMPORTERS AND EXPORTERS OF US CRUDE OIL)
+
+china_us_exchange_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/china_us_exchange_rate.csv")
+china_us_exchange_rate= china_us_exchange_rate%>%
+  rename(china_us_exchange_rate = `EXCHUS`)
+
+eu_us_exchange_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/eu_us_exchange_rate.csv")
+eu_us_exchange_rate = eu_us_exchange_rate%>%
+  rename(eu_us_exchange_rate = EXUSEU)
+
+canada_us_exchange_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/canada_us_exchange_rate.csv")
+canada_us_exchange_rate = canada_us_exchange_rate%>%
+  rename(canada_us_exchange_rate= EXCAUS)
+
+mexico_us_exchange_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/mexico_us_exchange_rate.csv")
+mexico_us_exchange_rate = mexico_us_exchange_rate%>%
+  rename(mexico_us_exchange_rate = EXMXUS)
+
+saudi_us_exchange_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/saudi_us_exchange_rate.csv")
+saudi_us_exchange_rate = saudi_us_exchange_rate%>%
+  rename(saudi_us_exchange_rate = SAUCCUSMA02STM)
+
+southkorea_us_exchange_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/southkorea_us_exchange_rate.csv")
+southkorea_us_exchange_rate = southkorea_us_exchange_rate%>%
+  rename(southkorea_us_exchange_rate = EXKOUS)
+
+us_fed_rate = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/us_fed_rate.csv")
+us_fed_rate = us_fed_rate%>%
+  rename(us_fed_rate = FEDFUNDS)
+
+##Merge the Data Sets
+
+# Start with the Y variable of Interest = WTI Crude Oil
+
+merged_data = left_join(global_WTI_crude_prices, global_brent_crude_prices,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, global_dubai_crude_prices,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, industrial_production,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, oil_gas_industry_price_index,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_unemployment,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_cpi,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_crude_contract1,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_crude_contract2,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_crude_contract3,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_crude_contract4,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_crude_oil_stocks_refineries,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_crude_oil_operating_rigs,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_gasoline_prices,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_gdp,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_interest_rate,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, china_us_exchange_rate,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, eu_us_exchange_rate,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, canada_us_exchange_rate,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, mexico_us_exchange_rate,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, saudi_us_exchange_rate,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, southkorea_us_exchange_rate,
+                        by = "observation_date")
+
+merged_data = left_join(merged_data, us_fed_rate,
+                      by = "observation_date")
+
+merged_data <- merged_data[, !grepl("^Month\\.", colnames(merged_data))]
+
+write.csv(merged_data, "merged_data.csv", row.names = FALSE) ##This is the data file already merged!!!
+
+merged_data = read_csv("~/Downloads/DATA SCIENCE/FINAL PROJECT DS/data/new data/merged_data.csv")
+
+##There are some variables that we do not want
+data = merged_data %>%
+  dplyr::select(-c(eu_us_exchange_rate, GDP, Month, us_interest_rate,log_global_WTI_crude_prices))
+
+clean_data = na.omit(data) ##now we have 365 observations for 19 regressors and 1 dependent variable when we drop the NAs, from 1993-11-01 to 2024-03-01 (if not we can also choose to omit more variables and compare)
+```
+
+
+We use a range of economic variables within our analysis, where Global WTI Crude Prices is our dependent variable, and the additional 21 variables are the regressors of interest. Our data has a monthly frequency. These variables are from FRED, World Bank, IMF, Our World In Data and the US Energy Information Agency (EIA), and further information on the location of these data sources can be found in the Appendix. Given that we are interested in the relationship between WTI crude oil (which the US is the producer of) and their macroeconomic situation, we can justify the inclusion of US unemployment rates, the US federal funds rate and inflation rate (through the CPI), wherby crude oil is a main driver of the US' economic growth. To help us understand the supply side of crude oil we also include the size of industrial production, an index for the oil and gas industry in the US economy, the number of crude oil stocks at refineries and the number of operating crude oil rigs in the US. 
+
+Given that we are trying to reflect the complexity of the crude oil market this motivates the inclusion of additional types of crude oil (BRENT and Dubai), differentiating between types of crude oil (which are our US Crude Contract Variables) and accounting for the price of gasoline given that it is s WTI's main end product.This gives us a better understanding of the crude oil market, and how changes in the respective consumption of products of WTI and its competitors can impact the price of WTI crude oil. Given the exchange of WTI crude produced in the US but distributed internationally we also included the exchange rate of the biggest importers of WTI crude (which are Mexico, Canada, China and South Korea), as well as the exchange rate for the top countries from which the US imports oil (Canada, Mexico and Saudi Arabia).
+
+https://www.eia.gov/energyexplained/oil-and-petroleum-products/imports-and-exports.php
+
+How these variables are related with one another, we can observe through the Correlation Matrix. It is interesting to note how we do see somewhat high correlation between some of these variables (in particular with our dependent variable of WTI prices): justifying our economic understanding of including them in our forecasting exercise.
+
+
+```{r DATA VISUALISATION, echo = FALSE}
+##Plotting Global WTI crude Prices over Time
+line_color <- "#1f77b4"
+ggplot(clean_data, aes(x = observation_date, y = global_WTI_crude_prices)) +
+  geom_line(color = line_color, linewidth = 1) +
+  geom_point(color = line_color, size = 1, alpha = 0.8) +
+  labs(
+    title = "Global WTI Crude Oil Prices Over Time",
+    x = "Date",
+    y = "WTI Crude Price (USD)"
+  ) +
+  theme_minimal(base_family = "System Font") +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, color = "black"),
+    axis.title = element_text(size = 14, color = "black"),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(angle = -45, hjust = 0),
+    panel.grid.major = element_line(color = "grey80", linewidth = 0.5),
+    panel.grid.minor = element_line(color = "grey90"),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA),
+    axis.line = element_line(color = "black"),
+    legend.position = c(0.02, 0.98),
+    legend.justification = c("left", "top"),
+    legend.background = element_rect(fill = "white", color = NA)
+  )
+
+
+```
+
+We can see the evolution of oil prices over time in Figure 1. Despite there being a general increasing trend from the first observations in 1990 to more recent observations in 2024, we can clearly see volatility in the price of crude oil produced in the US during distinct periods of time. In our project, we would like to accurately predict not just this volatility, but more importantly correctly identify the highest and lowest price points to a certain degree of accuracy.
+
+
+## Feature Engineering
+
+As is common in commodity prices, we see that past observations are correlated with future observations, and in the literature this is also observed when dealing with oil prices. In order to take this into account we propose including lagged variables of our main variable of interest: the price of WTI oil in previous periods. In order to justify our choice we first plot the autocorrelation of the oil price variable through the ACF and PACF plots (which can be found in the Appendix). Given that our data initially crosses the confidence interval, we can conclude the evidence of autocorrelation, and given that the bar then remains within the confidence interval in the second lag we can conclude that there is sufficient justifying adding two lags into our regression given the correlation of current oil prices with past observations. When we conduct an Augmented Dickey Fuller Test we obtain a p-value of 0.2598 which is greater than 0.05 meaning that there is not evidence to reject the null hypothesis of non-stationarity. In order to confirm how many lags we should include we see this from the graph and then  conduct a VarSelect command to identify the smallest lag value we should include in our regression (which is 2 coinciding with our graph). We select 2 lags given that it has the lowest AIC value, a criterion which evaluates across mode complexity and goodness of fit (by penalizing models with more lags to avoid over fitting).
+
+Due to the presence of missing values, we had the choice to remove observations, impute them, or remove the variable altogether. We went against imputing (or duplicating) them given that this would not be reflective of the actual change of the variable across time and would thus be incompatible with the volatility that we observe in the model. As a result instead of working with the full sample from 1990-01-01 to 2025-06-01, we now use the dates of 1994-01-01 to 2024-03-01 (this is also because we are working with lagged variables of two time periods for our dependent variable). This means we dropped from 426 to 363, which is a significant limitation for our model, given the further restrictions we are imposing given that we are working with monthly data and fewer observations due to the elimination of months that had missing values. 
+
+```{r ADF, echo = FALSE, include=FALSE}
+adf_result <- adf.test(clean_data$global_WTI_crude_prices)## p value is greater than 0.05 so we get non stationary
+#adf_result
+
+# Extract key values
+adf_table <- data.frame(
+  Statistic = adf_result$statistic,
+  P_value   = adf_result$p.value,
+  Method    = adf_result$method
+)
+knitr::kable(adf_table, caption = "ADF Test Result")
+
+var_selection <- VARselect(clean_data$global_WTI_crude_prices,
+                           lag.max = 100,
+                           type = "const")
+
+# Get AIC values from the lags added to model
+aic_values <- var_selection$selection["AIC(n)"]
+
+# Best lag for AIC minimised
+best_lag_aic <- aic_values
+
+knitr::kable(best_lag_aic, caption = "Lag with Lowest AIC")
+
+```
+
+```{r ACF, echo = FALSE}
+
+acf(clean_data$global_WTI_crude_prices, plot = TRUE)
+acf_data <- acf(clean_data$global_WTI_crude_prices, plot = FALSE)
+acf_df <- data.frame(
+  lag = acf_data$lag,
+  acf = acf_data$acf
+)
+
+# # Plot using ggplot2
+ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_segment(aes(xend = lag, yend = 0)) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = c(-1.96/sqrt(acf_data$n.used),
+                            1.96/sqrt(acf_data$n.used)),
+             linetype = "dashed") +
+  labs(title = "ACF Plot WTI Oil Prices",
+       x = "Lag",
+       y = "ACF")
+ 
+pacf(clean_data$global_WTI_crude_prices, plot = TRUE)
+pacf_data <- pacf(clean_data$global_WTI_crude_prices, plot = FALSE)
+
+pacf_df <- data.frame(
+  lag = pacf_data$lag,
+  pacf = pacf_data$acf
+)
+
+# 95% confidence limits
+conf_limit <- 1.96 / sqrt(pacf_data$n.used)
+
+# ggplot PACF
+ggplot(pacf_df, aes(x = lag, y = pacf)) +
+  geom_segment(aes(xend = lag, yend = 0)) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = c(-conf_limit, conf_limit),
+             linetype = "dashed") +
+  labs(
+    title = "PACF Plot WTI Oil Prices",
+    x = "Lag",
+    y = "PACF"
+  ) +
+  theme_minimal()
+
+
+
+```
+
+```{r CORRELATION, echo = FALSE}
+##correlation
+##CORRELATION
+##Add the lagged variables
+clean_data = clean_data %>%
+  mutate(
+    WTI_lag1 = lag(global_WTI_crude_prices, 1),
+    WTI_lag2 = lag(global_WTI_crude_prices, 2)
+  )
+
+clean_data = na.omit(clean_data)
+clean_no_obs <- clean_data[, names(clean_data) != "observation_date"]
+
+cor_matrix <- cor(clean_no_obs)
+cor_matrix_rounded <- round(cor_matrix, 3)
+
+cor_long <- melt(cor_matrix_rounded, varnames = c("Variable1", "Variable2"), value.name = "Correlation")
+library(RColorBrewer)
+custom_labels <- c(
+  "Global WTI Crude Prices",
+  "Global Brent Crude Prices",
+  "Global Dubai Crude Prices",
+  "Industrial Production",
+  "Oil & Gas Industry Price Index",
+  "U.S. Unemployment",
+  "U.S. CPI",
+  "U.S. Crude Contract 1",
+  "U.S. Crude Contract 2",
+  "U.S. Crude Contract 3",
+  "U.S. Crude Contract 4",
+  "U.S. Crude Oil Stocks at Refineries",
+  "U.S. Crude Oil Operating Rigs",
+  "U.S. Gasoline Prices",
+  "China–U.S. Exchange Rate",
+  "Canada–U.S. Exchange Rate",
+  "Mexico–U.S. Exchange Rate",
+  "Saudi Arabia–U.S. Exchange Rate",
+  "South Korea–U.S. Exchange Rate",
+  "U.S. Federal Funds Rate",
+  "WTI Lag 1",
+  "WTI Lag 2"
+)
+
+ggplot(cor_long, aes(x = Variable1, y = Variable2, fill = Correlation)) +
+  geom_tile(color = "white") +
+  scale_fill_gradientn(
+    colors = RColorBrewer::brewer.pal(11, "BrBG"),
+    limits = c(-1, 1),
+    name = "Correlation"
+  ) +
+  # Map variable names to custom labels directly
+  scale_x_discrete(labels = setNames(custom_labels, colnames(clean_no_obs))) +
+  scale_y_discrete(labels = setNames(custom_labels, colnames(clean_no_obs))) +
+  coord_fixed(ratio = 1) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45, hjust = 1, vjust = 1, size = 8,
+      margin = ggplot2::margin(t = 3)
+    ),
+    axis.text.y = element_text(
+      size = 8,
+      margin = ggplot2::margin(r = 3)
+    ),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  ) +
+  labs(title = "Correlation Heatmap")
+
+
+
+
+```
+
+## Methodology
+
+```{r TRAIN AND TEST, echo = FALSE}
+
+##Here we get the predicted values
+y = clean_data$global_WTI_crude_prices
+
+##We get the regressors (for now dont include the lagged variables of y)
+X = clean_data %>%
+  dplyr::select(observation_date,us_crude_oil_stocks_refineries,
+         us_crude_oil_operating_rigs,
+         us_unemployment,
+         oil_gas_industry_price_index,
+         global_brent_crude_prices,
+         global_dubai_crude_prices,
+         canada_us_exchange_rate,
+         china_us_exchange_rate,
+         industrial_production,
+         us_cpi,
+         us_crude_contract1,
+         us_crude_contract2,
+         us_crude_contract3,
+         us_crude_contract4,
+         us_gasoline_prices,
+         mexico_us_exchange_rate,
+         saudi_us_exchange_rate,
+         southkorea_us_exchange_rate,
+         us_fed_rate,
+         WTI_lag1,
+         WTI_lag2)
+
+# Q19: Re-define y to hold the observations of y starting from the second row until the last.
+y = y[-1]  ##this is because we want to predict tt with xt-1
+
+# Q20: Re-define X to hold the observations of X starting from the first row until the second to last row.
+# Notice that now y and X are alligned: X is always one period behind y.
+X = X[1:(nrow(X) - 1), ]
+
+##Combine these data frames
+pred.df = cbind(y, X)
+n <- nrow(pred.df)
+train_rows <- floor(0.7 * n)
+validate_rows <- floor(0.1 * n)
+
+##Create the training and testing sets with a 80% and 20% split
+train.df <- pred.df[1:train_rows, ]
+validate.df <- pred.df[(train_rows + 1):(train_rows + validate_rows), ]
+test.df <- pred.df[(train_rows + validate_rows + 1):n, ]
+```
+
+## Baseline GLM: Linear Model
+```{r LINEAR MODEL, echo=FALSE, fig.width=7, fig.height=5, fig.show='hold'}
+fullMdl = lm(y ~ ., data = train.df[, names(train.df) != "observation_date"])
+summary(fullMdl)
+#Validate
+fmPred_validate = predict(fullMdl, validate.df)
+rmse_lm_validate <- sqrt(mean((fmPred_validate - validate.df$y)^2))
+fmPred_validate
+#Testing
+fmPred = predict(fullMdl, test.df)
+rmse_lm <- sqrt(mean((fmPred - test.df$y)^2))
+rmse_lm
+
+lm_plot_df <- tibble(
+  observation_date = as.Date(test.df$observation_date),
+  actual = as.numeric(test.df$y),
+  predicted = as.numeric(fmPred)
+)
+
+lm_plot_df <- lm_plot_df %>%
+  mutate(
+    ymin = pmin(actual, predicted),
+    ymax = pmax(actual, predicted)
+  )
+
+# Custom toned colors
+actual_col <- "#2ca02c"     # toned green
+predicted_col <- "#1f77b4"  # toned blue
+ribbon_col <- "#ADD8E6"  # light transparent blue
+
+# Plot
+ggplot(lm_plot_df, aes(x = observation_date)) +
+  geom_ribbon(aes(ymin = ymin, ymax = ymax), fill = ribbon_col) +
+  geom_line(aes(y = actual, color = "Actual"), linewidth = 0.8) +
+  geom_line(aes(y = predicted, color = "Predicted"), linewidth = 0.8, linetype = "dashed") +
+  scale_color_manual(
+    name = "",
+    values = c("Actual" = actual_col, "Predicted" = predicted_col)
+  ) +
+  scale_x_date(
+    date_breaks = "6 months",   # smaller increments (monthly)
+    date_labels = "%b %Y"
+  ) +
+  labs(
+    title = paste0("Actual vs Predicted WTI Prices (Linear Model)\nRMSE = ", round(rmse_lm, 2)),
+    x = "Date",
+    y = "WTI Price (USD)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+    axis.text.y = element_text(size = 7)
+  )
+```
+## Penalised Regressions:
+
+## Lasso
+```{r LASSO, echo = FALSE, results='asis'}
+## Validation
+X_train = as.matrix(train.df[, c(-1,-2)]) #remove y which is the first column and observation date which is 21st column
+X_test = as.matrix(validate.df[, c(-1,-2)])
+y_train = train.df$y
+y_test = validate.df$y
+lasso = cv.glmnet(X_train, y_train, alpha = 1, nfolds = 10)
+lassoPred = predict(lasso, s='lambda.min',newx=X_test)
+rmse_lasso <- sqrt(mean((lassoPred - y_test)^2))
+lassoPred_num <- as.numeric(lassoPred)
+
+##Testing
+X_test = as.matrix(test.df[, c(-1,-2)])
+y_train = train.df$y
+y_test = test.df$y
+lasso = cv.glmnet(X_train, y_train, alpha = 1, nfolds = 10)
+lassoPred = predict(lasso, s='lambda.min',newx=X_test)
+rmse_lasso <- sqrt(mean((lassoPred - y_test)^2))
+lassoPred_num <- as.numeric(lassoPred)
+
+lasso$lambda.min ## value of the lamda that minimises the cross validated error
+coefs = coef(lasso, s = "lambda.min")## tells you which variables are helpful in predicting WTI crude oil prices
+
+coef_df = data.frame(
+  variable = rownames(coefs),
+  beta = as.numeric(coefs)
+)
+
+custom_labels_full <- c("Intercept", custom_labels)
+names(custom_labels_full) <- rownames(coefs)
+coef_df <- coef_df %>%
+  mutate(variable = custom_labels_full[variable])
+
+# Print LaTeX table
+knitr::kable(
+  coef_df,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 3,
+  caption = "LASSO Coefficients (Lambda Min, Rounded to 3 Decimals)"
+)
+
+
+# Create plotting dataframe
+lasso_plot_df <- tibble(
+  observation_date = as.Date(test.df$observation_date),
+  actual = as.numeric(y_test),
+  predicted = lassoPred_num
+)
+
+# Ribbon limits
+lasso_plot_df <- lasso_plot_df %>%
+  mutate(
+    ymin = pmin(actual, predicted),
+    ymax = pmax(actual, predicted)
+  )
+
+# Custom toned colors
+actual_col <- "#2ca02c"     # toned green
+predicted_col <- "#1f77b4"  # toned blue
+ribbon_col <- alpha(predicted_col, 0.2)  # light transparent blue
+```
+
+```{r LASSO PLOT, echo=FALSE, fig.width=7, fig.height=5, fig.show='hold'}
+# Plot LASSO actual vs predicted
+ggplot(lasso_plot_df, aes(x = observation_date)) +
+  geom_ribbon(aes(ymin = ymin, ymax = ymax), fill = ribbon_col) +
+  geom_line(aes(y = actual, color = "Actual"), linewidth = 0.8) +
+  geom_line(aes(y = predicted, color = "Predicted"), linewidth = 0.8, linetype = "dashed") +
+  scale_color_manual(
+    name = "",
+    values = c("Actual" = actual_col, "Predicted" = predicted_col)
+  ) +
+  scale_x_date(
+    date_breaks = "6 months",   # 6-month increments
+    date_labels = "%b %Y"
+  ) +
+  labs(
+    title = paste0("Actual vs Predicted WTI Prices (LASSO)\nRMSE = ", round(rmse_lasso, 2)),
+    x = "Date",
+    y = "WTI Price (USD)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8)
+  )
+```
+
+
+##Ridge
+
+```{r RIDGE, echo = FALSE, results='asis'}
+##ridge given that there is gug correlation between the variables
+## Ridge
+## Validation
+X_train = as.matrix(train.df[, c(-1,-2)]) #remove y which is the first column and observation date which is 21st column
+X_test = as.matrix(validate.df[, c(-1,-2)])
+y_train = train.df$y
+y_test = validate.df$y
+
+ridge = cv.glmnet(X_train, y_train, alpha = 0, nfolds = 10)
+ridgePred = predict(ridge, s = "lambda.min", newx = X_test)
+
+rmse_ridge <- sqrt(mean((ridgePred - y_test)^2))
+
+##Testing
+X_train = as.matrix(train.df[, c(-1,-2)]) #remove y which is the first column and observation date which is 21st column
+X_test = as.matrix(test.df[, c(-1,-2)])
+y_train = train.df$y
+y_test = test.df$y
+
+ridge = cv.glmnet(X_train, y_train, alpha = 0, nfolds = 10)
+ridgePred = predict(ridge, s = "lambda.min", newx = X_test)
+
+rmse_ridge <- sqrt(mean((ridgePred - y_test)^2))
+
+ridge$lambda.min ## value of the lamda that minimises the cross validated error
+coefs_ridge = coef(ridge, s = "lambda.min")## tells you which variables are helpful in predicting WTI crude oil prices
+
+coef_df_ridge <- data.frame(
+  variable = rownames(coefs_ridge),
+  coefficient = as.numeric(coefs_ridge)
+)
+
+custom_labels_full <- c("Intercept", custom_labels)
+names(custom_labels_full) <- rownames(coefs_ridge)
+coef_df_ridge <- coef_df_ridge %>%
+  mutate(variable = custom_labels_full[variable])
+
+# Print LaTeX table
+knitr::kable(
+  coef_df_ridge,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 3,
+  caption = "Ridge Coefficients (Lambda Min, Rounded to 3 Decimals)"
+)
+
+ridgePred_num <- as.numeric(ridgePred)
+
+ridge_plot_df <- tibble(
+  observation_date = as.Date(test.df$observation_date),
+  actual = as.numeric(y_test),
+  predicted = ridgePred_num
+)
+
+# Ribbon limits for shaded area
+ridge_plot_df <- ridge_plot_df %>%
+  mutate(
+    ymin = pmin(actual, predicted),
+    ymax = pmax(actual, predicted)
+  )
+
+# Custom colors (same toned green/blue)
+actual_col <- "#2ca02c"     # toned green
+predicted_col <- "#1f77b4"  # toned blue
+ribbon_col <- alpha(predicted_col, 0.2)  # light transparent blue
+
+# Plot
+ggplot(ridge_plot_df, aes(x = observation_date)) +
+  geom_ribbon(aes(ymin = ymin, ymax = ymax), fill = ribbon_col) +
+  geom_line(aes(y = actual, color = "Actual"), linewidth = 0.8) +
+  geom_line(aes(y = predicted, color = "Predicted"), linewidth = 0.8, linetype = "dashed") +
+  scale_color_manual(
+    name = "",
+    values = c("Actual" = actual_col, "Predicted" = predicted_col)
+  ) +
+  scale_x_date(
+    date_breaks = "6 months",   # 6-month increments
+    date_labels = "%b %Y"
+  ) +
+  labs(
+    title = paste0("Actual vs Predicted WTI Prices (Ridge)\nRMSE = ", round(rmse_ridge, 2)),
+    x = "Date",
+    y = "WTI Price (USD)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8)
+  )
+```
+
+##Flexible Methods
+
+### KNN
+
+```{r KNN, echo = FALSE, results='asis'}
+train.df <- as.data.frame(train.df)
+test.df  <- as.data.frame(test.df)
+
+# Select numeric columns from train
+X_train_numeric <- dplyr::select(train.df, dplyr::where(is.numeric))
+
+# Ensure test set has same columns in the same order
+missing_cols <- setdiff(colnames(X_train_numeric), colnames(test.df))
+if(length(missing_cols) > 0){
+  test.df[missing_cols] <- 0  # fill missing columns with zeros
+}
+X_test_numeric <- dplyr::select(test.df, dplyr::all_of(colnames(X_train_numeric)))
+
+# Convert to matrices
+X_train_matrix <- as.matrix(X_train_numeric)
+X_test_matrix  <- as.matrix(X_test_numeric)
+
+# --- 2️⃣ Scale data for distance-based KNN ---
+X_train_scaled <- scale(X_train_matrix)
+X_test_scaled  <- scale(X_test_matrix,
+                        center = attr(X_train_scaled, "scaled:center"),
+                        scale  = attr(X_train_scaled, "scaled:scale"))
+
+# --- 3️⃣ Prepare target vectors ---
+y_train_numeric <- as.numeric(y_train)
+y_test_numeric  <- as.numeric(y_test)
+
+# --- 4️⃣ Find best k based on RMSE ---
+k_values <- 1:20
+rmse_values <- sapply(k_values, function(k){
+  pred <- knn.reg(train = X_train_scaled, test = X_test_scaled, y = y_train_numeric, k = k)$pred
+  sqrt(mean((pred - y_test_numeric)^2))
+})
+
+best_k <- k_values[which.min(rmse_values)]
+best_rmse <- min(rmse_values)
+
+# --- 5️⃣ Fit KNN with best k ---
+knn_model <- knn.reg(train = X_train_scaled, test = X_test_scaled, y = y_train_numeric, k = best_k)
+knnPred <- knn_model$pred
+rmse_knn <- sqrt(mean((knnPred - y_test_numeric)^2))
+
+# --- 6️⃣ Prepare data for plotting ---
+knn_plot_df <- tibble(
+  observation_date = as.Date(test.df$observation_date),  # remove/replace if missing
+  actual = y_test_numeric,
+  predicted = knnPred
+) %>%
+  mutate(
+    ymin = pmin(actual, predicted),
+    ymax = pmax(actual, predicted)
+  )
+
+# --- 7️⃣ Custom colors ---
+actual_col <- "#2ca02c"
+predicted_col <- "#1f77b4"
+ribbon_col <- alpha(predicted_col, 0.2)
+
+# --- 8️⃣ Plot ---
+ggplot(knn_plot_df, aes(x = observation_date)) +
+  geom_ribbon(aes(ymin = ymin, ymax = ymax), fill = ribbon_col) +
+  geom_line(aes(y = actual, color = "Actual"), linewidth = 0.8) +
+  geom_line(aes(y = predicted, color = "Predicted"), linewidth = 0.8, linetype = "dashed") +
+  scale_color_manual(
+    name = "",
+    values = c("Actual" = actual_col, "Predicted" = predicted_col)
+  ) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  labs(
+    title = paste0("Actual vs Predicted WTI Prices (KNN, k = ", best_k, ", RMSE = ", round(rmse_knn, 2), ")"),
+    x = "Date",
+    y = "WTI Price (USD)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8)
+  )
+
+# --- 9️⃣ Print best k and RMSE ---
+cat("Best k:", best_k, "\n")
+cat("Best RMSE:", round(rmse_knn, 3), "\n")
+
+```
+
+
+### Random Forest
+
+
+```{r}
+set.seed(123)  # for reproducibility
+tuneGrid <- expand.grid(.mtry = 1:ncol(X_train))
+
+rf_tuned <- train(
+  x = X_train,
+  y = y_train,
+  method = "rf",
+  tuneGrid = tuneGrid,
+  ntree = 500,
+  trControl = trainControl(method="cv", number=5)
+)
+rf_tuned$bestTune ## gives us 2
+
+rf_model <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,        # number of trees
+  mtry = 2,  # default: sqrt(number of features)
+  importance = TRUE
+)
+rf_pred <- predict(rf_model, newdata = X_test)
+rmse_rf <- sqrt(mean((rf_pred - y_test)^2))
+rmse_rf
+importance(rf_model)
+varImpPlot(rf_model)
+
+pred_label <- paste0("RF Predicted (RMSE = ", round(rmse_rf, 2), ")")
+actual_color <- "#1f77b4"      # muted blue for actual
+predicted_color <- "#2ca02c"   # green for predicted
+shade_color <- "#2ca02c" 
+# Plot
+# Assuming rmse_rf is already calculated
+pred_label <- paste0("RF Predicted (RMSE = ", round(rmse_rf, 2), ")")
+
+ggplot() +
+  # Shaded error ribbon
+  geom_ribbon(aes(x = test.df$observation_date,
+                  ymin = pmin(y_test, rf_pred),
+                  ymax = pmax(y_test, rf_pred),
+                  fill = "Prediction Error"),
+              alpha = 0.15) +
+  
+  # Actual values line
+  geom_line(aes(x = test.df$observation_date,
+                y = y_test,
+                color = "Actual"),
+            size = 0.8) +
+  
+  # Predicted values line (dashed)
+  geom_line(aes(x = test.df$observation_date,
+                y = rf_pred,
+                color = pred_label),
+            size = 0.8,
+            linetype = "dashed") +
+  
+  # Custom colors
+  scale_color_manual(values = c(
+    "Actual" = actual_color,
+    pred_label = predicted_color
+  )) +
+  scale_fill_manual(values = c(
+    "Prediction Error" = shade_color
+  )) +
+  
+  # Labels with RMSE in the title
+  labs(
+    title = paste0("Actual vs Predicted WTI Prices (Random Forest)\nRMSE = ", round(rmse_rf, 2)),
+    x = "Date",
+    y = "WTI Price",
+    color = "",
+    fill = ""
+  ) +
+  
+  # Theme formatting to match the other graphs
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+    legend.position = "top"
+  )
+
+##Variance Importance Plots
+library(ggplot2)
+library(dplyr)
+
+# Extract variable importance
+rf_varimp <- as.data.frame(rf_model$importance)
+rf_varimp$Variable <- rownames(rf_varimp)
+
+
+rf_varimp <- rf_varimp %>%
+  arrange(desc(`%IncMSE`))
+
+custom_labels <- c(
+  "us_crude_oil_stocks_refineries" = "U.S. Crude Stocks at Refineries",
+  "us_crude_oil_operating_rigs" = "U.S. Crude Operating Rigs",
+  "us_unemployment" = "U.S. Unemployment",
+  "oil_gas_industry_price_index" = "Oil & Gas Industry Price Index",
+  "global_brent_crude_prices" = "Global Brent Crude Prices",
+  "global_dubai_crude_prices" = "Global Dubai Crude Prices",
+  "canada_us_exchange_rate" = "Canada–U.S. Exchange Rate",
+  "china_us_exchange_rate" = "China–U.S. Exchange Rate",
+  "industrial_production" = "Industrial Production",
+  "us_cpi" = "U.S. CPI",
+  "us_crude_contract1" = "U.S. Crude Contract 1",
+  "us_crude_contract2" = "U.S. Crude Contract 2",
+  "us_crude_contract3" = "U.S. Crude Contract 3",
+  "us_crude_contract4" = "U.S. Crude Contract 4",
+  "us_gasoline_prices" = "U.S. Gasoline Prices",
+  "mexico_us_exchange_rate" = "Mexico–U.S. Exchange Rate",
+  "saudi_us_exchange_rate" = "Saudi Arabia–U.S. Exchange Rate",
+  "southkorea_us_exchange_rate" = "South Korea–U.S. Exchange Rate",
+  "us_fed_rate" = "U.S. Federal Funds Rate",
+  "WTI_lag1" = "WTI Lag 1",
+  "WTI_lag2" = "WTI Lag 2"
+)
+
+rf_varimp$Variable <- recode(rf_varimp$Variable, !!!custom_labels)
+
+# Plot
+ggplot(rf_varimp, aes(x = reorder(Variable, `%IncMSE`), y = `%IncMSE`)) +
+  geom_bar(stat = "identity", fill = "#1f77b4") +
+  coord_flip() +
+  labs(
+    title = "Random Forest Variable Importance",
+    x = "Variable",
+    y = "Increase in MSE"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text = element_text(size = 10)
+  )
+
+
+```
+
+## Results
+
+
+```{r}
+rmse_table <- data.frame(
+  Model = c("Linear Model", "Ridge Regression","KNN", "Random Forest", "Lasso Regression"),
+  RMSE = c(rmse_lm, rmse_ridge, rmse_knn, rmse_rf, rmse_lasso)
+)
+knitr::kable(rmse_table, caption = "RMSE Comparison of Prediction Models")
+```
+
+## Appendix
+
+### List of Variables (their description and source):
+Observation Date
+Global WTI Crude Prices
+Global Brent Crude Prices
+Global Dubai Crude Prices
+Industrial Production
+Oil & Gas Industry Price Index
+U.S. Unemployment
+U.S. CPI
+U.S. Crude Contract 1
+U.S. Crude Contract 2
+U.S. Crude Contract 3
+U.S. Crude Contract 4
+U.S. Crude Oil Stocks at Refineries
+U.S. Crude Oil Operating Rigs
+U.S. Gasoline Prices
+China–U.S. Exchange Rate
+Canada–U.S. Exchange Rate
+Mexico–U.S. Exchange Rate
+Saudi Arabia–U.S. Exchange Rate
+South Korea–U.S. Exchange Rate
+U.S. Federal Funds Rate
+WTI Lag 1
+WTI Lag 2
+
+## Lags for WTI Oil Prices
+```{r, echo = FALSE, results='asis'}
+# Plot using ggplot2
+ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_segment(aes(xend = lag, yend = 0)) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = c(-1.96/sqrt(acf_data$n.used), 
+                            1.96/sqrt(acf_data$n.used)),
+             linetype = "dashed") +
+  labs(title = "ACF Plot WTI Oil Prices",
+       x = "Lag",
+       y = "ACF")
+
+pacf_data <- pacf(clean_data$global_WTI_crude_prices, plot = FALSE)
+
+pacf_df <- data.frame(
+  lag = pacf_data$lag,
+  pacf = pacf_data$acf
+)
+
+# 95% confidence limits
+conf_limit <- 1.96 / sqrt(pacf_data$n.used)
+
+# ggplot PACF
+print(ggplot(pacf_df, aes(x = lag, y = pacf)) +
+  geom_segment(aes(xend = lag, yend = 0)) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = c(-conf_limit, conf_limit),
+             linetype = "dashed") +
+  labs(
+    title = "PACF Plot WTI Oil Prices",
+    x = "Lag",
+    y = "PACF"
+  ) +
+  theme_minimal())
+```
+
+
+### Bibliography:
+https://www.sciencedirect.com/science/article/pii/S1544612324009048#bb14
+https://www.ecb.europa.eu/pub/pdf/scpwps/ecbwp1735.pdf
+https://www.jstor.org/stable/23243728 
